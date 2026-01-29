@@ -1,0 +1,219 @@
+.app {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.header {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 2rem;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.header h1 {
+  color: #1f2937;
+  margin-bottom: 0.5rem;
+}
+
+.header p {
+  color: #6b7280;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.form-section {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.875rem;
+}
+
+.form-group input[type="number"],
+.form-group input[type="date"],
+.form-group input[type="file"] {
+  padding: 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.submit-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.results {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.results h2 {
+  color: #1f2937;
+  margin-bottom: 1.5rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.metric-card {
+  background: #f9fafb;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+}
+
+.metric-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.metric-value.negative {
+  color: #dc2626;
+}
+
+.chart-section {
+  margin: 2rem 0;
+}
+
+.chart-section h3 {
+  color: #1f2937;
+  margin-bottom: 1rem;
+}
+
+.trades-section {
+  margin-top: 2rem;
+}
+
+.trades-section h3 {
+  color: #1f2937;
+  margin-bottom: 1rem;
+}
+
+.trades-table {
+  overflow-x: auto;
+}
+
+.trades-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.trades-table th {
+  background: #f3f4f6;
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.trades-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.trades-table tr:hover {
+  background: #f9fafb;
+}
+
+.trades-table .buy {
+  color: #059669;
+  font-weight: 600;
+}
+
+.trades-table .sell {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.trades-table .positive {
+  color: #059669;
+  font-weight: 600;
+}
+
+.trades-table .negative {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.trades-note {
+  margin-top: 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  text-align: center;
+}
