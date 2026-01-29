@@ -63,7 +63,7 @@ class SimBroker:
             self.cost_model = cost_model
 
         self.partial_fill_prob = partial_fill_prob
-        self.partial_fill_ratio = partial_fill_ratio
+        self.partial_fill_ratio = Decimal(str(partial_fill_ratio))  # Convert to Decimal
         self.orders: dict[str, Order] = {}
         self.fills: list[Fill] = []
         self._rng = np.random.default_rng(42)  # Reproducible
@@ -185,17 +185,23 @@ class SimBroker:
         # Apply slippage based on side
         if order.side == "BUY":
             # Buy at ask (higher)
-            slippage = Decimal(str(bar.get("spread", 0) / 2)) if "spread" in bar else Decimal("0")
+            if "spread" in bar:
+                slippage = Decimal(str(bar["spread"])) / Decimal("2")
+            else:
+                slippage = Decimal("0")
             fill_price += slippage
         else:
             # Sell at bid (lower)
-            slippage = Decimal(str(bar.get("spread", 0) / 2)) if "spread" in bar else Decimal("0")
+            if "spread" in bar:
+                slippage = Decimal(str(bar["spread"])) / Decimal("2")
+            else:
+                slippage = Decimal("0")
             fill_price -= slippage
 
         # Determine fill quantity (may be partial)
         fill_quantity = order.quantity
         if self._rng.random() < self.partial_fill_prob:
-            fill_quantity = Decimal(str(float(fill_quantity) * self.partial_fill_ratio))
+            fill_quantity = fill_quantity * self.partial_fill_ratio
 
         # Calculate cost
         volume = Decimal(str(bar.get("volume", 1)))
@@ -244,7 +250,7 @@ class SimBroker:
         # Determine fill quantity
         fill_quantity = order.quantity
         if self._rng.random() < self.partial_fill_prob:
-            fill_quantity = Decimal(str(float(fill_quantity) * self.partial_fill_ratio))
+            fill_quantity = fill_quantity * self.partial_fill_ratio
 
         # Calculate cost
         volume = Decimal(str(bar.get("volume", 1)))

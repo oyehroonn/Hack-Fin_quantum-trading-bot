@@ -69,7 +69,10 @@ class Position:
             self.realized_pnl -= cost
         else:
             # Reducing or reversing position
-            closed_quantity = min(abs(self.quantity), abs(quantity))
+            # Ensure both are Decimal for min() operation
+            qty_abs = abs(self.quantity)
+            qty_fill_abs = abs(quantity)
+            closed_quantity = min(qty_abs, qty_fill_abs)
             if self.quantity > 0:
                 # Closing long position
                 pnl = closed_quantity * (price - self.avg_price)

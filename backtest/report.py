@@ -35,8 +35,9 @@ class PerformanceReport:
         if equity_df.empty or len(equity_df) < 2:
             return {}
 
-        # Calculate returns
-        equity_df["returns"] = equity_df["equity"].pct_change()
+        # Calculate returns - convert equity to float first for pct_change
+        equity_float = equity_df["equity"].astype(float)
+        equity_df["returns"] = equity_float.pct_change()
         equity_df["returns"] = equity_df["returns"].fillna(0)
 
         # Remove first row (initial equity)
@@ -46,7 +47,8 @@ class PerformanceReport:
             return {}
 
         returns = equity_df["returns"].values
-        equity = equity_df["equity"].values
+        # Convert equity to float for calculations (equity column contains Decimal)
+        equity = equity_df["equity"].astype(float).values
 
         # Time period
         start_date = equity_df["timestamp"].iloc[0]
@@ -85,7 +87,8 @@ class PerformanceReport:
         # Win rate and average win/loss
         trades_df = self.portfolio.get_trades_df()
         if not trades_df.empty and "pnl" in trades_df.columns:
-            pnl = trades_df["pnl"].values
+            # Convert PnL to float for calculations (PnL column contains Decimal)
+            pnl = trades_df["pnl"].astype(float).values
             winning_trades = pnl[pnl > 0]
             losing_trades = pnl[pnl < 0]
 
@@ -101,9 +104,10 @@ class PerformanceReport:
 
         # Turnover (simplified: sum of absolute trades / average equity)
         if not trades_df.empty and "quantity" in trades_df.columns:
-            total_turnover = trades_df["quantity"].abs().sum()
-            avg_equity = equity_df["equity"].mean()
-            turnover = float(total_turnover / avg_equity) if avg_equity > 0 else 0.0
+            # Convert to float for calculations
+            total_turnover = float(trades_df["quantity"].abs().sum())
+            avg_equity = float(equity_df["equity"].astype(float).mean())
+            turnover = total_turnover / avg_equity if avg_equity > 0 else 0.0
         else:
             turnover = 0.0
 
