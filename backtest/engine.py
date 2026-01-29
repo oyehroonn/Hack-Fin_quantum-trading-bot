@@ -87,35 +87,32 @@ class BacktestEngine:
             bars: dict[str, pd.Series] = {}
             prices: dict[str, Decimal] = {}
 
-            if isinstance(bars_data, pd.Series):
-                # Single symbol - bars_data is a Series with column names as index
-                # For multi-index, this happens when there's only one symbol at this timestamp
+            # Handle multi-index DataFrame: data.loc[timestamp] returns DataFrame with symbol as index
+            if isinstance(bars_data, pd.DataFrame):
+                # Iterate over rows (each row is a symbol)
+                for symbol, row in bars_data.iterrows():
+                    symbol_str = str(symbol)
+                    bars[symbol_str] = row
+                    # Access values by column name
+                    close_val = row.get("close", row.get("Close", 0))
+                    prices[symbol_str] = Decimal(str(close_val))
+            elif isinstance(bars_data, pd.Series):
+                # Single symbol case - Series with column names as index
+                # Get symbol from original data index or use first symbol
                 if isinstance(data.index, pd.MultiIndex):
-                    # Get symbol from the original index
-                    symbol_idx = data.index.get_level_values(1)[data.index.get_level_values(0) == timestamp]
-                    symbol = str(symbol_idx[0]) if len(symbol_idx) > 0 else (self.symbols[0] if self.symbols else "UNKNOWN")
+                    # Find symbol for this timestamp
+                    matching = data.index[data.index.get_level_values(0) == timestamp]
+                    if len(matching) > 0:
+                        symbol = str(matching.get_level_values(1)[0])
+                    else:
+                        symbol = self.symbols[0] if self.symbols else "UNKNOWN"
                 else:
                     symbol = self.symbols[0] if self.symbols else "UNKNOWN"
+                
                 bars[symbol] = bars_data
-                close_val = bars_data.get("close") if "close" in bars_data.index else bars_data.get("Close", 0)
+                close_val = bars_data.get("close", bars_data.get("Close", 0))
                 prices[symbol] = Decimal(str(close_val))
-            elif isinstance(bars_data, pd.DataFrame):
-                # Multiple symbols or single symbol in DataFrame format
-                if isinstance(bars_data.index, pd.MultiIndex):
-                    # Still has symbol level - iterate over symbols
-                    for symbol in bars_data.index.get_level_values(1).unique():
-                        bar = bars_data.loc[bars_data.index.get_level_values(1) == symbol].iloc[0]
-                        bars[str(symbol)] = bar
-                        close_val = bar.get("close") if "close" in bar.index else bar.get("Close", 0)
-                        prices[str(symbol)] = Decimal(str(close_val))
-                else:
-                    # Single row DataFrame - symbol is in the index
-                    for symbol, (idx, bar) in bars_data.iterrows():
-                        bars[str(symbol)] = bar
-                        close_val = bar.get("close") if "close" in bar.index else bar.get("Close", 0)
-                        prices[str(symbol)] = Decimal(str(close_val))
             else:
-                # Fallback - shouldn't happen
                 logger.warning(f"Unexpected bars_data type: {type(bars_data)}")
                 continue
 

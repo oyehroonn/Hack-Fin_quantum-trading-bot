@@ -58,8 +58,11 @@ class SMACrossoverStrategy(WeightBasedStrategy):
             if symbol not in self.price_history:
                 self.price_history[symbol] = []
 
-            # Get close price
-            close = float(bar.get("close", bar.get("Close", 0)))
+            # Get close price - handle both Series (with index) and dict-like
+            if isinstance(bar, pd.Series):
+                close = float(bar.get("close", bar.get("Close", 0)) if "close" in bar.index or "Close" in bar.index else 0)
+            else:
+                close = float(bar.get("close", bar.get("Close", 0)))
             if close == 0:
                 continue
 
