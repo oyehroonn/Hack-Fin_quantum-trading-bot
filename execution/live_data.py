@@ -10,7 +10,6 @@ from loguru import logger
 
 from core.interfaces import DataSource
 from core.types import Bar
-from data.query.duckdb_client import DuckDBClient
 from data.storage.parquet_store import ParquetStore
 
 
@@ -52,24 +51,15 @@ class ReplayDataSource(DataSource):
     async def _load_data(self) -> None:
         """Load historical data from parquet."""
         try:
-            # Try DuckDB first
-            client = DuckDBClient(base_path=self.data_path)
-            df = client.get_bars(
-                symbols=[(self.asset_class, self.symbol, self.timeframe)],
+            # Load data using ParquetStore
+            store = ParquetStore(base_path=self.data_path)
+            df = store.read_bars(
+                asset_class=self.asset_class,
+                symbol=self.symbol,
+                timeframe=self.timeframe,
                 start=self.start_date,
                 end=self.end_date,
             )
-
-            if df.empty:
-                # Fallback to ParquetStore
-                store = ParquetStore(base_path=self.data_path)
-                df = store.read_bars(
-                    asset_class=self.asset_class,
-                    symbol=self.symbol,
-                    timeframe=self.timeframe,
-                    start=self.start_date,
-                    end=self.end_date,
-                )
 
             if df.empty:
                 raise ValueError(f"No data found for {self.symbol}")

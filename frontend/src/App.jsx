@@ -11,11 +11,27 @@ function App() {
     start_date: '',
     end_date: '',
   })
+  
+  // Helper function to safely parse numeric values
+  const parseNumeric = (value) => {
+    if (value === '' || value === null || value === undefined) return 0
+    const parsed = parseFloat(value)
+    return isNaN(parsed) ? 0 : parsed
+  }
+  
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
   const [useSynthetic, setUseSynthetic] = useState(false)
+  const [useRealData, setUseRealData] = useState(false)
+  const [useCrypto, setUseCrypto] = useState(false)
+  const [symbol, setSymbol] = useState('AAPL')
+  const [symbolSearch, setSymbolSearch] = useState('')
+  const [symbolOptions, setSymbolOptions] = useState([])
+  const [periodDays, setPeriodDays] = useState(30)
+  const [assetClass, setAssetClass] = useState('equities')
+  const [suggestions, setSuggestions] = useState(null)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -24,7 +40,49 @@ function App() {
     setResults(null)
 
     try {
-      if (useSynthetic) {
+      if (useCrypto) {
+        // Crypto data endpoint (Binance)
+        const params = new URLSearchParams({
+          symbol: symbol.toUpperCase().replace('/', ''),
+          initial_cash: config.initial_cash.toString(),
+          fast_period: config.fast_period.toString(),
+          slow_period: config.slow_period.toString(),
+          timeframe: '1d',
+        })
+        
+        if (config.start_date) params.append('start_date', config.start_date)
+        if (config.end_date) params.append('end_date', config.end_date)
+        
+        const response = await axios.post(
+          `/api/backtest/crypto?${params.toString()}`,
+          {},
+          {
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+        setResults(response.data)
+      } else if (useRealData) {
+        // Real stock data endpoint
+        const params = new URLSearchParams({
+          symbol: symbol.toUpperCase(),
+          initial_cash: config.initial_cash.toString(),
+          fast_period: config.fast_period.toString(),
+          slow_period: config.slow_period.toString(),
+          timeframe: '1d',
+        })
+        
+        if (config.start_date) params.append('start_date', config.start_date)
+        if (config.end_date) params.append('end_date', config.end_date)
+        
+        const response = await axios.post(
+          `/api/backtest/real?${params.toString()}`,
+          {},
+          {
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+        setResults(response.data)
+      } else if (useSynthetic) {
         // Synthetic data endpoint
         const response = await axios.post('/api/backtest/synthetic', config, {
           headers: { 'Content-Type': 'application/json' },
@@ -82,24 +140,179 @@ function App() {
         <div className="form-section">
           <form onSubmit={handleSubmit} className="form">
             <div className="form-group">
+              <label>Asset Class</label>
+              <select
+                value={assetClass}
+                onChange={(e) => {
+                  setAssetClass(e.target.value)
+                  setUseCrypto(e.target.value === 'crypto')
+                  setUseRealData(e.target.value === 'equities')
+                  setUseSynthetic(false)
+                  if (e.target.value === 'crypto') {
+                    setSymbol('BTCUSDT')
+                  } else {
+                    setSymbol('AAPL')
+                  }
+                }}
+                style={{ padding: '8px', fontSize: '1em', width: '100%' }}
+              >
+                <option value="equities">Stocks (Equities)</option>
+                <option value="crypto">Cryptocurrency</option>
+              </select>
+            </div>
+
+            <div className="form-group">
               <label>
                 <input
                   type="checkbox"
                   checked={useSynthetic}
-                  onChange={(e) => setUseSynthetic(e.target.checked)}
+                  onChange={(e) => {
+                    setUseSynthetic(e.target.checked)
+                    if (e.target.checked) {
+                      setUseRealData(false)
+                      setUseCrypto(false)
+                    }
+                  }}
                 />
                 Use Synthetic Data (for testing)
               </label>
             </div>
 
-            {!useSynthetic && (
+            {(useRealData || useCrypto) && (
+              <>
+                <div className="form-group">
+                  <label>{assetClass === 'crypto' ? 'Crypto Symbol' : 'Stock Symbol'}</label>
+                  <input
+                    type="text"
+                    value={symbol}
+                    onChange={async (e) => {
+                      const value = e.target.value.toUpperCase()
+                      setSymbol(value)
+                      setSymbolSearch(value)
+                      
+                      // Search symbols as user types
+                      if (value.length >= 1) {
+                        try {
+                          const response = await axios.get(
+                            `/api/symbols/search?query=${encodeURIComponent(value)}&asset_class=${assetClass}`
+                          )
+                          setSymbolOptions(response.data.symbols || [])
+                        } catch (err) {
+                          console.error('Symbol search error:', err)
+                        }
+                      } else {
+                        setSymbolOptions([])
+                      }
+                    }}
+                    placeholder={assetClass === 'crypto' ? 'BTCUSDT, ETHUSDT, etc.' : 'AAPL, MSFT, GOOGL, etc.'}
+                    style={{ textTransform: 'uppercase' }}
+                    list="symbol-list"
+                  />
+                  <datalist id="symbol-list">
+                    {symbolOptions.map((opt, idx) => (
+                      <option key={idx} value={opt.symbol}>{opt.display}</option>
+                    ))}
+                  </datalist>
+                  <small style={{ color: '#666', fontSize: '0.9em', display: 'block', marginTop: '4px' }}>
+                    {assetClass === 'crypto' 
+                      ? 'Enter crypto pair (e.g., BTCUSDT, ETHUSDT) - Data from Binance'
+                      : 'Enter stock symbol - Data from Yahoo Finance'}
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label>Period (Days)</label>
+                  <select
+                    value={periodDays}
+                    onChange={(e) => {
+                      const days = parseInt(e.target.value)
+                      setPeriodDays(days)
+                      const end = new Date()
+                      const start = new Date()
+                      start.setDate(start.getDate() - days)
+                      setConfig({
+                        ...config,
+                        start_date: start.toISOString().split('T')[0],
+                        end_date: end.toISOString().split('T')[0],
+                      })
+                    }}
+                    style={{ padding: '8px', fontSize: '1em', width: '100%' }}
+                  >
+                    <option value={7}>Last 7 days</option>
+                    <option value={30}>Last 30 days</option>
+                    <option value={90}>Last 90 days</option>
+                    <option value={180}>Last 6 months</option>
+                    <option value={365}>Last year</option>
+                    <option value={730}>Last 2 years</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        setLoading(true)
+                        const response = await axios.post('/api/backtest/suggest', {
+                          symbol: symbol,
+                          asset_class: assetClass,
+                          initial_cash: config.initial_cash,
+                          fast_period: config.fast_period,
+                          slow_period: config.slow_period,
+                          period_days: periodDays,
+                          timeframe: '1d',
+                        })
+                        setSuggestions(response.data)
+                      } catch (err) {
+                        setError(err.response?.data?.detail || err.message)
+                      } finally {
+                        setLoading(false)
+                      }
+                    }}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#8b5cf6',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '1em',
+                      width: '100%',
+                    }}
+                  >
+                    Get Trade Suggestion
+                  </button>
+                </div>
+
+                {suggestions && (
+                  <div style={{
+                    padding: '15px',
+                    backgroundColor: '#f3f4f6',
+                    borderRadius: '8px',
+                    marginTop: '10px',
+                    border: `2px solid ${suggestions.signal === 'BUY' ? '#10b981' : suggestions.signal === 'SELL' ? '#ef4444' : '#6b7280'}`,
+                  }}>
+                    <h3 style={{ marginTop: 0, color: suggestions.signal === 'BUY' ? '#10b981' : suggestions.signal === 'SELL' ? '#ef4444' : '#6b7280' }}>
+                      {suggestions.signal} {suggestions.symbol}
+                    </h3>
+                    <p><strong>Confidence:</strong> {(suggestions.confidence * 100).toFixed(0)}%</p>
+                    <p><strong>Current Price:</strong> ${suggestions.current_price?.toFixed(2)}</p>
+                    <p><strong>Risk Level:</strong> {suggestions.risk_level}</p>
+                    <p><strong>Expected Monthly Return:</strong> {(suggestions.expected_monthly_return * 100).toFixed(2)}%</p>
+                    <p><strong>Recommendation:</strong> {suggestions.recommendation}</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!useSynthetic && !useRealData && (
               <div className="form-group">
                 <label>Upload Data File (CSV or Parquet)</label>
                 <input
                   type="file"
                   accept=".csv,.parquet"
                   onChange={(e) => setFile(e.target.files[0])}
-                  required={!useSynthetic}
+                  required={!useSynthetic && !useRealData}
                 />
               </div>
             )}
@@ -109,8 +322,11 @@ function App() {
                 <label>Initial Cash ($)</label>
                 <input
                   type="number"
-                  value={config.initial_cash}
-                  onChange={(e) => setConfig({ ...config, initial_cash: parseFloat(e.target.value) })}
+                  value={config.initial_cash || ''}
+                  onChange={(e) => {
+                    const val = parseNumeric(e.target.value)
+                    setConfig({ ...config, initial_cash: val || 100000 })
+                  }}
                   min="1000"
                   step="1000"
                 />
@@ -120,8 +336,11 @@ function App() {
                 <label>Fast SMA Period</label>
                 <input
                   type="number"
-                  value={config.fast_period}
-                  onChange={(e) => setConfig({ ...config, fast_period: parseInt(e.target.value) })}
+                  value={config.fast_period || ''}
+                  onChange={(e) => {
+                    const val = parseNumeric(e.target.value)
+                    setConfig({ ...config, fast_period: val || 10 })
+                  }}
                   min="1"
                   max="100"
                 />
@@ -131,8 +350,11 @@ function App() {
                 <label>Slow SMA Period</label>
                 <input
                   type="number"
-                  value={config.slow_period}
-                  onChange={(e) => setConfig({ ...config, slow_period: parseInt(e.target.value) })}
+                  value={config.slow_period || ''}
+                  onChange={(e) => {
+                    const val = parseNumeric(e.target.value)
+                    setConfig({ ...config, slow_period: val || 30 })
+                  }}
                   min="1"
                   max="200"
                 />

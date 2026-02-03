@@ -57,21 +57,103 @@ class BacktestEngine:
         Returns:
             Portfolio with results
         """
-        # Prepare data
+        # Prepare data and normalize timestamps to UTC
+        utc = pytz.UTC
+        
         if isinstance(data.index, pd.MultiIndex):
             # Multi-index (timestamp, symbol)
+            # Normalize timestamp level to UTC
+            timestamps = data.index.get_level_values(0)
+            if isinstance(timestamps, pd.DatetimeIndex):
+                if timestamps.tz is None:
+                    # Localize to UTC
+                    new_levels = [timestamps.tz_localize(utc), data.index.levels[1]]
+                    data.index = pd.MultiIndex.from_arrays(new_levels, names=data.index.names)
+                elif timestamps.tz != utc:
+                    # Convert to UTC
+                    new_levels = [timestamps.tz_convert(utc), data.index.levels[1]]
+                    data.index = pd.MultiIndex.from_arrays(new_levels, names=data.index.names)
             data = data.sort_index()
         else:
             # Single symbol - convert to multi-index
             if "symbol" not in data.columns:
                 raise ValueError("Single symbol data must have 'symbol' column")
+            
+            # Normalize timestamp column to UTC before indexing
+            if "timestamp" in data.columns:
+                if pd.api.types.is_datetime64_any_dtype(data["timestamp"]):
+                    if data["timestamp"].dt.tz is None:
+                        data["timestamp"] = data["timestamp"].dt.tz_localize(utc)
+                    else:
+                        data["timestamp"] = data["timestamp"].dt.tz_convert(utc)
+            
             data = data.set_index(["timestamp", "symbol"])
 
-        # Filter by date range
+        # Filter by date range (ensure timezone consistency)
+        
         if start:
-            data = data[data.index.get_level_values(0) >= start]
+            # Normalize start to UTC
+            if isinstance(start, pd.Timestamp):
+                if start.tzinfo is None:
+                    start_utc = start.tz_localize(utc)
+                else:
+                    start_utc = start.tz_convert(utc)
+            elif isinstance(start, datetime):
+                if start.tzinfo is None:
+                    start_utc = pd.Timestamp(start).tz_localize(utc)
+                else:
+                    start_utc = pd.Timestamp(start).tz_convert(utc)
+            else:
+                start_utc = pd.to_datetime(start)
+                if start_utc.tzinfo is None:
+                    start_utc = start_utc.tz_localize(utc)
+                else:
+                    start_utc = start_utc.tz_convert(utc)
+            
+            # Get timestamps from index and normalize
+            timestamps = data.index.get_level_values(0)
+            if isinstance(timestamps, pd.DatetimeIndex):
+                if timestamps.tz is None:
+                    # Create a new index with UTC timezone
+                    new_index = data.index.set_levels(
+                        [timestamps.tz_localize(utc)] + list(data.index.levels[1:]),
+                        level=[0, 1]
+                    )
+                    data = data.set_index(new_index)
+                    timestamps = data.index.get_level_values(0)
+                elif timestamps.tz != utc:
+                    # Convert to UTC
+                    new_index = data.index.set_levels(
+                        [timestamps.tz_convert(utc)] + list(data.index.levels[1:]),
+                        level=[0, 1]
+                    )
+                    data = data.set_index(new_index)
+                    timestamps = data.index.get_level_values(0)
+            
+            data = data[timestamps >= start_utc]
+            
         if end:
-            data = data[data.index.get_level_values(0) <= end]
+            # Normalize end to UTC
+            if isinstance(end, pd.Timestamp):
+                if end.tzinfo is None:
+                    end_utc = end.tz_localize(utc)
+                else:
+                    end_utc = end.tz_convert(utc)
+            elif isinstance(end, datetime):
+                if end.tzinfo is None:
+                    end_utc = pd.Timestamp(end).tz_localize(utc)
+                else:
+                    end_utc = pd.Timestamp(end).tz_convert(utc)
+            else:
+                end_utc = pd.to_datetime(end)
+                if end_utc.tzinfo is None:
+                    end_utc = end_utc.tz_localize(utc)
+                else:
+                    end_utc = end_utc.tz_convert(utc)
+            
+            # Get timestamps from index (already normalized to UTC in prepare step)
+            timestamps = data.index.get_level_values(0)
+            data = data[timestamps <= end_utc]
 
         # Get unique timestamps
         timestamps = sorted(data.index.get_level_values(0).unique())
