@@ -1,1 +1,1 @@
-"""Portfolio management."""
+"""Portfolio management: allocation and rebalancing."""

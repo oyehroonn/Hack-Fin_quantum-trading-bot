@@ -1,101 +1,151 @@
-# File Tree
+# File Tree — Quantum Trading Bot v0.2
 
 ```
 quantum-trading-bot/
-├── Makefile                    # Build, lint, test, demo commands
-├── README.md                   # Project documentation
-├── pyproject.toml              # Poetry dependencies and tool configs
-├── config.yaml                 # Default configuration
-├── .gitignore                  # Git ignore patterns
+├── config.yaml                    # System configuration (v0.2: models, regime, ensemble, LLM)
+├── pyproject.toml                 # Poetry dependencies (v0.2: xgboost, lightgbm, joblib)
 │
-├── core/                       # Core types and interfaces
+├── core/                          # Domain types, interfaces, errors
+│   ├── __init__.py                # Exports all core types + interfaces + errors
+│   ├── types.py                   # Immutable dataclasses (v0.2: Regime, ModelDecision, StrategyAllocation, etc.)
+│   ├── interfaces.py              # ABCs (v0.2: ModelRegistry, Evaluator, Allocator, LLMClient, RegimeDetector)
+│   └── errors.py                  # [NEW] Custom error hierarchy (TradingError → Data/Model/Execution/Risk/LLM)
+│
+├── models/                        # [NEW] Model Zoo
 │   ├── __init__.py
-│   ├── types.py                # Bar, Tick, Order, Fill, Position, PortfolioState, Signal
-│   └── interfaces.py           # DataSource, FeatureStore, Model, Strategy, Broker, RiskManager
+│   ├── base.py                    # TradingModel base class + ModelStrategy adapter (Model→Backtest bridge)
+│   ├── registry.py                # FileModelRegistry: save/load/promote, champion/challenger management
+│   ├── baselines/                 # Rule-based models (no training needed)
+│   │   ├── sma_crossover.py       # SMA crossover as TradingModel
+│   │   ├── mean_reversion.py      # Bollinger/Z-score mean reversion
+│   │   └── breakout.py            # Channel breakout with momentum
+│   ├── ml/                        # Machine learning models
+│   │   ├── xgb_classifier.py      # XGBoost direction classifier (with sklearn fallback)
+│   │   ├── lgbm_regressor.py      # LightGBM return regressor (with sklearn fallback)
+│   │   └── calibration.py         # Probability calibration (isotonic / Platt / binning)
+│   └── ensemble/                  # Ensemble strategies
+│       ├── blender.py             # Weighted blending (equal/performance/stacking)
+│       └── meta_regime_selector.py # Regime-aware model selection with Hurst/variance-ratio
 │
-├── data/                       # Data sources
+├── research/                      # Research & experimentation
 │   ├── __init__.py
-│   └── dummy_source.py         # DummyDataSource - synthetic bar generation
+│   ├── dataset.py                 # DatasetBuilder (sliding windows, splits, normalisation)
+│   ├── labeling.py                # [NEW] Tradable labels: direction, edge, triple-barrier, volatility
+│   ├── evaluation.py              # [NEW] Cost-aware metrics, walk-forward eval, stability (R²)
+│   ├── experiments.py             # [NEW] Experiment tracker (JSON-based, index, compare)
+│   └── tuning.py                  # [NEW] Grid search + random search with tracking
 │
-├── features/                   # Feature engineering
+├── features/                      # Feature engineering
 │   ├── __init__.py
-│   ├── simple_store.py         # SimpleFeatureStore - returns + SMA
-│   └── dummy_model.py          # DummyModel - random but reproducible signals
+│   ├── technical.py               # SMA, EMA, RSI, MACD, Bollinger, ATR, VWAP
+│   ├── statistical.py             # Returns, vol, Z-score, autocorrelation, skew, kurtosis
+│   ├── regime.py                  # [NEW] StatisticalRegimeDetector (trend/vol/Hurst/chop)
+│   ├── microstructure.py          # [NEW] Spread proxy, Kyle's lambda, Amihud, VPIN, volume imbalance
+│   ├── online_store.py            # [NEW] Streaming feature store (rolling buffers, incremental EMA)
+│   ├── feature_store.py           # Batch feature store (Parquet cache)
+│   ├── simple_store.py            # In-memory feature store for execution
+│   └── dummy_model.py             # Demo model
 │
-├── execution/                  # Order execution
+├── portfolio/                     # [NEW] Portfolio management
 │   ├── __init__.py
-│   └── paper_broker.py         # PaperBroker - simulates fills with slippage+fees
+│   ├── allocator.py               # EqualWeight, RiskParity, RegimeAware, Kelly allocators
+│   └── rebalancer.py              # Target→Orders conversion with min trade thresholds
 │
-├── risk/                       # Risk management
+├── backtest/                      # Backtesting engine
 │   ├── __init__.py
-│   └── simple_risk.py          # SimpleRiskManager - max position + max leverage
+│   ├── engine.py                  # Event-driven backtest engine
+│   ├── strategy.py                # Strategy ABCs (OrderBased, WeightBased)
+│   ├── strategies/
+│   │   └── sma_crossover.py       # Original SMA crossover strategy
+│   ├── broker_sim.py              # Simulated broker (slippage, partial fills)
+│   ├── cost_models.py             # Fixed, percent, spread, volume cost models
+│   ├── accounting.py              # Position tracking, PnL, equity curve
+│   ├── walk_forward.py            # Walk-forward analysis runner
+│   └── report.py                  # Performance metrics (Sharpe, Sortino, DD, etc.)
 │
-├── infra/                      # Infrastructure
+├── execution/                     # Live/paper trading
 │   ├── __init__.py
-│   ├── config.py               # Config loader (YAML + env overrides)
-│   └── logging.py              # Structured logging with correlation IDs
+│   ├── orchestrator.py            # Execution orchestrator (bar→features→signal→order→fill)
+│   ├── paper_broker.py            # Paper trading broker
+│   ├── live_data.py               # Replay data source
+│   └── risk_overlay.py            # [NEW] Pre-trade risk overlay + CircuitBreaker
 │
-├── scripts/                    # Utility scripts
-│   └── run_demo.py             # End-to-end demo runner
-│
-├── tests/                      # Test suite
+├── risk/                          # Risk management
 │   ├── __init__.py
-│   ├── test_types.py           # Tests for core types
-│   ├── test_config.py          # Tests for config loading
-│   ├── test_risk.py            # Tests for risk manager
-│   └── test_broker.py          # Tests for broker fill logic
+│   ├── rules.py                   # AdvancedRiskManager (MaxPosition, MaxLeverage, MaxDD, Cooldown)
+│   └── simple_risk.py             # SimpleRiskManager
 │
-├── backtest/                   # Backtesting engine (placeholder)
-│   └── __init__.py
+├── data/                          # Data layer
+│   ├── __init__.py
+│   ├── dummy_source.py            # Synthetic data source
+│   ├── ingest/
+│   │   ├── base.py                # Ingestor ABC
+│   │   ├── equities_yfinance.py   # Yahoo Finance ingestor
+│   │   ├── binance_public.py      # Binance public API ingestor
+│   │   ├── crypto_ccxt.py         # CCXT ingestor
+│   │   └── forex_oanda.py         # OANDA ingestor
+│   ├── storage/
+│   │   ├── parquet_store.py       # Partitioned Parquet storage
+│   │   └── manifests.py           # [NEW] Data manifest tracking
+│   ├── quality/
+│   │   ├── validators.py          # Data quality validators
+│   │   └── drift.py               # [NEW] Distribution drift detection (PSI, KS, mean-shift)
+│   └── query/
+│       └── duckdb_client.py       # DuckDB SQL query client
 │
-├── portfolio/                  # Portfolio management (placeholder)
-│   └── __init__.py
+├── llm/                           # [NEW] LLM orchestration
+│   ├── __init__.py
+│   ├── schemas.py                 # Strict JSON schemas for all LLM I/O
+│   ├── client.py                  # OpenAI-compatible client + MockLLMClient + JSON validator
+│   └── orchestrator.py            # TradingGovernor (strategy selection, anomaly triage, reports)
 │
-├── research/                   # Research notebooks (placeholder)
-│   └── __init__.py
+├── infra/                         # Infrastructure
+│   ├── __init__.py
+│   ├── config.py                  # Pydantic settings (YAML + env vars)
+│   ├── logging.py                 # Loguru structured logging with correlation IDs
+│   ├── journal.py                 # SQLite event journal
+│   └── scheduler.py               # [NEW] Async task scheduler for periodic operations
 │
-└── rl/                         # Reinforcement learning (placeholder)
-    └── __init__.py
+├── api/                           # FastAPI backend
+│   ├── __init__.py
+│   ├── main.py                    # App entry point (v0.2: mounts model + research routers)
+│   ├── schemas.py                 # [NEW] Pydantic request/response schemas
+│   └── routers/                   # [NEW] Decomposed API routers
+│       ├── __init__.py
+│       ├── models.py              # /api/models/* (train, predict, list, regime, suggest)
+│       └── research.py            # /api/research/* (walk-forward, tune, experiments)
+│
+├── frontend/                      # React UI
+│   ├── src/App.jsx
+│   └── ...
+│
+├── scripts/                       # CLI scripts
+│   ├── ingest.py
+│   ├── run_demo.py
+│   ├── paper_trade_replay.py
+│   └── run_walk_forward.py
+│
+├── tests/                         # Test suite
+│   ├── test_types.py
+│   ├── test_backtest.py
+│   └── ...
+│
+├── SYSTEM_ARCHITECTURE.md         # Full architecture documentation
+└── FILE_TREE.md                   # This file
 ```
 
-## Key Components
+## v0.2 New Files Summary
 
-### Core Types (`core/types.py`)
-- `Bar`: OHLCV bar data with validation
-- `Tick`: Tick data (trade/quote)
-- `Order`: Order representation with side, type, quantity
-- `Fill`: Order fill with price, quantity, fees
-- `Position`: Position with quantity, avg_price, PnL
-- `PortfolioState`: Portfolio snapshot with cash, positions, PnL
-- `Signal`: Trading signal with strength, confidence, targets
-
-### Interfaces (`core/interfaces.py`)
-- `DataSource`: Stream bars/ticks
-- `FeatureStore`: Compute and retrieve features
-- `Model`: Generate predictions/signals
-- `Strategy`: Generate trading signals
-- `Broker`: Submit orders, get fills, positions
-- `RiskManager`: Validate orders, check limits
-
-### Example Vertical Slice
-1. **DummyDataSource**: Generates synthetic OHLCV bars using random walk
-2. **SimpleFeatureStore**: Computes returns and SMA from bars
-3. **DummyModel**: Generates random but reproducible signals based on features
-4. **PaperBroker**: Simulates order execution with slippage and commission
-5. **SimpleRiskManager**: Enforces max position size and max leverage
-6. **run_demo.py**: Orchestrates the full pipeline for 1000 steps
-
-### Configuration
-- YAML-based config with environment variable overrides
-- Uses `pydantic-settings` for type-safe configuration
-- Environment variables prefixed with `TRADING_` override YAML values
-
-### Logging
-- Structured logging with `loguru`
-- Correlation IDs for request tracing
-- Configurable log levels and file output
-
-### Testing
-- 3+ basic tests for types and config
-- Tests for risk manager limits
-- Tests for broker fill logic and position updates
+| Directory | New Files | Purpose |
+|-----------|-----------|---------|
+| `core/` | `errors.py` | Typed error hierarchy |
+| `models/` | 10 files | Model zoo (baselines, ML, ensemble, registry) |
+| `research/` | 4 files | Labeling, evaluation, experiments, tuning |
+| `features/` | 3 files | Regime detection, microstructure, online store |
+| `portfolio/` | 2 files | Allocator, rebalancer |
+| `execution/` | 1 file | Risk overlay + circuit breaker |
+| `llm/` | 4 files | LLM client, schemas, orchestrator, audit |
+| `data/` | 2 files | Drift detection, data manifests |
+| `infra/` | 1 file | Task scheduler |
+| `api/` | 3 files | Schemas + model/research routers |
+| **Total** | **30 new files** | |

@@ -1,9 +1,13 @@
-"""Core data types for the trading system."""
+"""Core data types for the trading system.
 
-from dataclasses import dataclass
+All value objects are frozen dataclasses with validation.
+Decimal is used for prices/quantities to avoid floating-point issues.
+"""
+
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from enum import Enum
 
 
@@ -190,3 +194,188 @@ class Signal:
             raise ValueError("Strength must be between -1 and 1")
         if not (0 <= self.confidence <= 1):
             raise ValueError("Confidence must be between 0 and 1")
+
+
+# ─── v0.2 additions: Regime, Model decisions, Allocations, Risk, Alerts, LLM ───
+
+
+class Regime(str, Enum):
+    """Market regime classification."""
+
+    TRENDING_UP = "TRENDING_UP"
+    TRENDING_DOWN = "TRENDING_DOWN"
+    MEAN_REVERTING = "MEAN_REVERTING"
+    HIGH_VOLATILITY = "HIGH_VOLATILITY"
+    LOW_VOLATILITY = "LOW_VOLATILITY"
+    UNKNOWN = "UNKNOWN"
+
+
+class AlertSeverity(str, Enum):
+    """Alert severity levels."""
+
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+
+
+class AlertType(str, Enum):
+    """Alert categories."""
+
+    RISK_LIMIT = "RISK_LIMIT"
+    DRIFT_DETECTED = "DRIFT_DETECTED"
+    CIRCUIT_BREAKER = "CIRCUIT_BREAKER"
+    MODEL_DEGRADATION = "MODEL_DEGRADATION"
+    DATA_QUALITY = "DATA_QUALITY"
+    EXECUTION_ANOMALY = "EXECUTION_ANOMALY"
+
+
+class LLMActionType(str, Enum):
+    """Types of actions the LLM governor can take."""
+
+    SELECT_STRATEGY = "SELECT_STRATEGY"
+    ADJUST_RISK = "ADJUST_RISK"
+    NO_TRADE = "NO_TRADE"
+    EXPLAIN_PERFORMANCE = "EXPLAIN_PERFORMANCE"
+    TRIAGE_ANOMALY = "TRIAGE_ANOMALY"
+
+
+@dataclass(frozen=True)
+class FeatureVector:
+    """Named feature vector for a single observation."""
+
+    symbol: str
+    timestamp: datetime
+    timeframe: str
+    features: dict[str, float]
+
+    @property
+    def names(self) -> list[str]:
+        """Feature names in sorted order."""
+        return sorted(self.features.keys())
+
+    @property
+    def values(self) -> list[float]:
+        """Feature values in sorted-name order."""
+        return [self.features[k] for k in self.names]
+
+
+@dataclass(frozen=True)
+class RegimeState:
+    """Market regime classification result."""
+
+    regime: Regime
+    confidence: Decimal
+    timestamp: datetime
+    symbol: str
+    indicators: dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not (0 <= self.confidence <= 1):
+            raise ValueError("Regime confidence must be between 0 and 1")
+
+
+@dataclass(frozen=True)
+class ModelDecision:
+    """A single model's output for one symbol at one point in time."""
+
+    model_id: str
+    model_version: str
+    symbol: str
+    timestamp: datetime
+    signal: Signal
+    probability: Optional[Decimal] = None
+    threshold_used: Optional[Decimal] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StrategyAllocation:
+    """Output of the allocator: per-strategy and per-asset target weights."""
+
+    timestamp: datetime
+    strategy_weights: dict[str, Decimal]      # strategy_id → portfolio fraction
+    asset_weights: dict[str, Decimal]          # symbol → target weight (-1 to 1)
+    regime: Optional[RegimeState] = None
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        total = sum(abs(w) for w in self.strategy_weights.values())
+        if total > Decimal("1.01"):
+            raise ValueError(f"Strategy weights sum {total} exceeds 1.0")
+
+
+@dataclass(frozen=True)
+class RiskLimits:
+    """Hard risk limits for the execution layer."""
+
+    max_drawdown: Decimal = Decimal("0.20")
+    max_daily_loss: Decimal = Decimal("0.03")
+    max_leverage: Decimal = Decimal("2.0")
+    max_symbol_exposure: Decimal = Decimal("0.25")
+    max_position_size: Decimal = Decimal("10000")
+    cooldown_minutes: int = 60
+
+
+@dataclass(frozen=True)
+class Alert:
+    """System alert raised by risk, drift, or anomaly detectors."""
+
+    alert_id: str
+    severity: AlertSeverity
+    alert_type: AlertType
+    message: str
+    timestamp: datetime
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LLMAction:
+    """Validated output from the LLM governor."""
+
+    action_type: LLMActionType
+    timestamp: datetime
+    payload: dict[str, Any] = field(default_factory=dict)
+    reasoning: str = ""
+    confidence: Decimal = Decimal("0.5")
+    raw_output: str = ""
+
+    def __post_init__(self) -> None:
+        if not (0 <= self.confidence <= 1):
+            raise ValueError("LLM confidence must be between 0 and 1")
+
+
+@dataclass(frozen=True)
+class ModelMetrics:
+    """Evaluation metrics for a model (OOS or in-sample)."""
+
+    model_id: str
+    model_version: str
+    evaluation_type: str  # "oos", "in_sample", "walk_forward"
+    timestamp: datetime
+    sharpe: float = 0.0
+    sortino: float = 0.0
+    total_return: float = 0.0
+    max_drawdown: float = 0.0
+    win_rate: float = 0.0
+    profit_factor: float = 0.0
+    num_trades: int = 0
+    avg_trade_pnl: float = 0.0
+    turnover: float = 0.0
+    calmar: float = 0.0
+    stability: float = 0.0  # R² of equity curve
+    extra: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExperimentResult:
+    """Result of a research experiment (training + evaluation run)."""
+
+    experiment_id: str
+    model_id: str
+    model_version: str
+    timestamp: datetime
+    config: dict[str, Any] = field(default_factory=dict)
+    train_metrics: Optional[ModelMetrics] = None
+    val_metrics: Optional[ModelMetrics] = None
+    test_metrics: Optional[ModelMetrics] = None
+    status: str = "completed"  # completed, failed, running

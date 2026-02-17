@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Optional
 
 import pandas as pd
+import pytz
 from loguru import logger
 
 from backtest.accounting import Portfolio

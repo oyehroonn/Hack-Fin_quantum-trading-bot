@@ -1,22 +1,76 @@
-# Trading System Configuration
+# Quantum Trading Bot Configuration (v0.2)
 # Environment variables prefixed with TRADING_ will override these values
 
+# ── Data ──
 data_dir: "data/"
+models_registry_dir: "models_registry/"
+experiments_dir: "experiments/"
 symbols:
   - "AAPL"
   - "MSFT"
   - "GOOGL"
 
+# ── Portfolio ──
 initial_cash: 100000.0
 max_position_size: 10000.0
 max_leverage: 2.0
+max_symbol_exposure: 0.25
 
+# ── Risk ──
 max_drawdown: 0.2
+max_daily_loss: 0.03
 stop_loss_pct: 0.02
 take_profit_pct: 0.05
+cooldown_minutes: 60
+max_consecutive_losses: 5
 
+# ── Trading Costs ──
 slippage_bps: 5.0
 commission_bps: 1.0
+fee_bps: 10.0
 
+# ── Models ──
+default_model_type: "xgb_direction"
+default_label_type: "edge"
+prediction_horizon: 1
+model_retrain_days: 7
+walk_forward_train_days: 252
+walk_forward_test_days: 63
+walk_forward_step_days: 21
+
+# ── Regime Detection ──
+regime_trend_lookback: 50
+regime_vol_lookback: 20
+regime_trend_threshold: 0.15
+
+# ── Ensemble ──
+ensemble_method: "equal"  # equal, performance, stacking
+ensemble_models:
+  - "sma_crossover"
+  - "mean_reversion"
+  - "breakout"
+
+# ── Allocation ──
+allocator_type: "regime_aware"  # equal_weight, risk_parity, regime_aware, kelly
+kelly_fraction: 0.5
+
+# ── LLM (optional) ──
+llm_enabled: false
+llm_model: "gpt-4"
+llm_temperature: 0.1
+llm_max_tokens: 2048
+
+# ── Drift Detection ──
+drift_psi_threshold: 0.2
+drift_ks_threshold: 0.05
+drift_check_interval_hours: 24
+
+# ── Scheduler ──
+ingest_interval_seconds: 3600
+retrain_interval_seconds: 604800
+evaluation_interval_seconds: 86400
+report_interval_seconds: 86400
+
+# ── Logging ──
 log_level: "INFO"
 log_file: null

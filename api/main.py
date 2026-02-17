@@ -25,16 +25,30 @@ from data.ingest.equities_yfinance import EquitiesYFinanceIngestor
 from data.ingest.binance_public import BinancePublicIngestor
 from loguru import logger
 
-app = FastAPI(title="Trading Bot API")
+app = FastAPI(
+    title="Quantum Trading Bot API",
+    version="0.2.0",
+    description="State-of-the-art trading bot with ML prediction models, regime detection, and ensemble strategies",
+)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite default port
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Mount v0.2 routers ──
+try:
+    from api.routers.models import router as models_router
+    from api.routers.research import router as research_router
+    app.include_router(models_router)
+    app.include_router(research_router)
+    logger.info("v0.2 routers mounted: /api/models, /api/research")
+except ImportError as e:
+    logger.warning(f"Could not mount v0.2 routers: {e}")
 
 class BacktestConfig(BaseModel):
     initial_cash: float = 100000.0
@@ -45,7 +59,15 @@ class BacktestConfig(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "Trading Bot API"}
+    return {
+        "message": "Quantum Trading Bot API",
+        "version": "0.2.0",
+        "endpoints": {
+            "backtest": "/api/backtest/*",
+            "models": "/api/models/*",
+            "research": "/api/research/*",
+        },
+    }
 
 @app.post("/api/backtest")
 async def run_backtest(
