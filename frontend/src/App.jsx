@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import CandlestickChart from './components/CandlestickChart'
+import { useLivePrice } from './hooks/useLivePrice'
+import { useBinanceWebSocket } from './hooks/useBinanceWebSocket'
+import { useTerminalSession } from './hooks/useTerminalSession'
 import './App.css'
 
 function formatCurrency(value) {
@@ -50,12 +54,14 @@ function App() {
   const [suggestions, setSuggestions] = useState(null)
   const [suggestLoading, setSuggestLoading] = useState(false)
 
-  const [terminalState, setTerminalState] = useState({
-    cash: 100000,
-    positions: {},
-    trades: [],
-    lastPrice: 0,
-  })
+  const [orderAmount, setOrderAmount] = useState(100)
+  const [ohlcv, setOhlcv] = useState([])
+  const [chartTimeframe, setChartTimeframe] = useState('1h')
+  const [sessionIdInput, setSessionIdInput] = useState('')
+
+  const { sessionId, portfolio, positions, trades, loading: terminalLoading, error: terminalError, clearError: clearTerminalError, executeTrade, refetch: refetchTerminal, restoreSession } = useTerminalSession()
+  const { price: livePrice, loading: priceLoading, refresh: refreshPrice } = useLivePrice(symbol, assetClass, 5000)
+  const { price: wsPrice, kline: wsKline, connected: wsConnected } = useBinanceWebSocket(symbol, chartTimeframe, assetClass === 'crypto' && view === 'terminal')
 
   const fetchSuggest = async () => {
     try {
@@ -73,9 +79,6 @@ function App() {
       const url = `/api/backtest/suggest?${params}`
       const res = await axios.post(url, {})
       setSuggestions(res.data)
-      if (res.data?.current_price != null) {
-        setTerminalState((s) => ({ ...s, lastPrice: res.data.current_price }))
-      }
     } catch (err) {
       setError(safeError(err.response?.data?.detail || err.message))
       setSuggestions(null)
@@ -84,60 +87,73 @@ function App() {
     }
   }
 
-  const executeAction = (action) => {
-    if (!suggestions?.current_price) return
-    const price = suggestions.current_price
+  const currentPrice = (assetClass === 'crypto' ? wsPrice : null) ?? livePrice ?? suggestions?.current_price
+
+  const sellPosition = async (pos) => {
+    const sym = pos.symbol?.toUpperCase().replace('/', '')
+    if (!sym || !pos?.qty || pos.qty <= 0) return
+    let price = currentPrice
+    if (sym !== symbol.toUpperCase().replace('/', '')) {
+      try {
+        const res = await axios.get('/api/market/price', { params: { symbol: sym, asset_class: assetClass } })
+        price = res.data?.price
+      } catch {
+        setError('Could not fetch price for ' + sym)
+        return
+      }
+    }
+    if (!price) return
+    await executeTrade({ symbol: sym, side: 'SELL', qty: pos.qty, price, asset_class: assetClass })
+  }
+
+  const executeAction = async (action) => {
+    if (!currentPrice) return
+    const sym = symbol.toUpperCase().replace('/', '')
     if (action === 'BUY') {
-      const qty = Math.floor((terminalState.cash * 0.1) / price)
-      if (qty <= 0) return
-      const cost = qty * price
-      const prev = terminalState.positions[symbol] || { qty: 0, cost: 0 }
-      setTerminalState((s) => ({
-        ...s,
-        cash: s.cash - cost,
-        positions: {
-          ...s.positions,
-          [symbol]: { qty: prev.qty + qty, cost: prev.cost + cost },
-        },
-        trades: [...s.trades, { time: new Date().toISOString(), symbol, side: 'BUY', qty, price, cost }],
-      }))
+      const amountUsd = typeof orderAmount === 'number' ? orderAmount : parseFloat(String(orderAmount).replace(/[^0-9.-]/g, '')) || 0
+      const cash = portfolio?.cash ?? 0
+      if (amountUsd <= 0 || amountUsd > cash) return
+      const qty = amountUsd / currentPrice
+      const decimals = assetClass === 'crypto' ? 8 : 4
+      const qtyRounded = parseFloat(qty.toFixed(decimals))
+      if (qtyRounded <= 0) return
+      await executeTrade({ symbol: sym, side: 'BUY', qty: qtyRounded, price: currentPrice, asset_class: assetClass })
     } else if (action === 'SELL') {
-      const pos = terminalState.positions[symbol]
+      const pos = positions.find((p) => p.symbol === sym)
       if (!pos?.qty || pos.qty <= 0) return
-      const sellQty = pos.qty
-      const proceeds = sellQty * price
-      const avgCost = pos.cost / pos.qty
-      const pnl = (price - avgCost) * sellQty
-      const nextPos = { ...terminalState.positions }
-      delete nextPos[symbol]
-      setTerminalState((s) => ({
-        ...s,
-        cash: s.cash + proceeds,
-        positions: nextPos,
-        trades: [...s.trades, { time: new Date().toISOString(), symbol, side: 'SELL', qty: sellQty, price, proceeds, pnl }],
-      }))
+      await executeTrade({ symbol: sym, side: 'SELL', qty: pos.qty, price: currentPrice, asset_class: assetClass })
     }
   }
 
   const totalEquity = () => {
-    let equity = terminalState.cash
-    Object.entries(terminalState.positions).forEach(([sym, p]) => {
-      if (p?.qty && suggestions?.symbol === sym && suggestions?.current_price) {
-        equity += p.qty * suggestions.current_price
-      } else if (p?.qty && terminalState.lastPrice && sym === symbol) {
-        equity += p.qty * terminalState.lastPrice
-      } else {
-        equity += p?.cost ?? 0
-      }
+    const cash = portfolio?.cash ?? 0
+    let eq = cash
+    ;(positions || []).forEach((p) => {
+      const mark = p.symbol === symbol.toUpperCase().replace('/', '') ? currentPrice : null
+      eq += p.qty * (mark ?? p.avg_cost)
     })
-    return equity
+    return eq
   }
 
-  const realizedPnl = () => {
-    return terminalState.trades
-      .filter((t) => t.side === 'SELL' && t.pnl != null)
-      .reduce((a, t) => a + t.pnl, 0)
-  }
+  const realizedPnl = () => portfolio?.realized_pnl ?? 0
+
+  useEffect(() => {
+    if (!symbol?.trim() || view !== 'terminal') return
+    const fetchOhlcv = async () => {
+      try {
+        const res = await axios.get('/api/market/ohlcv', {
+          params: { symbol: symbol.toUpperCase().replace('/', ''), asset_class: assetClass, timeframe: chartTimeframe, days: 60 },
+        })
+        setOhlcv(res.data?.ohlcv ?? [])
+      } catch {
+        setOhlcv([])
+      }
+    }
+    fetchOhlcv()
+    const interval = chartTimeframe === '1d' ? 120000 : 60000
+    const id = setInterval(fetchOhlcv, interval)
+    return () => clearInterval(id)
+  }, [symbol, assetClass, view, chartTimeframe])
 
   useEffect(() => {
     if (view === 'terminal' && (useRealData || useCrypto) && symbol) {
@@ -215,10 +231,10 @@ function App() {
       </header>
 
       <div className="container">
-        {error && (
+        {(error || terminalError) && (
           <div className="error">
-            <strong>Error:</strong> {error}
-            <button type="button" className="dismiss" onClick={() => setError(null)}>×</button>
+            <strong>Error:</strong> {error || terminalError}
+            <button type="button" className="dismiss" onClick={() => { setError(null); clearTerminalError() }}>×</button>
           </div>
         )}
 
@@ -274,26 +290,51 @@ function App() {
                   {suggestLoading ? 'Loading...' : 'Refresh'}
                 </button>
               </div>
+              <div className="session-section">
+                <h3>Session</h3>
+                <div className="session-id-row">
+                  <code className="session-id">{sessionId ? sessionId.slice(0, 8) + '…' : '—'}</code>
+                  <button type="button" className="btn-copy" onClick={() => { if (sessionId) navigator.clipboard.writeText(sessionId) }} title="Copy full Session ID">
+                    Copy
+                  </button>
+                </div>
+                <div className="restore-session">
+                  <input
+                    type="text"
+                    placeholder="Restore session ID"
+                    value={sessionIdInput}
+                    onChange={(e) => setSessionIdInput(e.target.value)}
+                    className="session-id-input"
+                  />
+                  <button type="button" className="btn-restore" onClick={() => restoreSession(sessionIdInput)} disabled={terminalLoading || !sessionIdInput?.trim()}>
+                    Restore
+                  </button>
+                </div>
+              </div>
               <div className="portfolio-summary">
                 <h3>Portfolio</h3>
-                <div className="stat"><span>Cash</span><span>{formatCurrency(terminalState.cash)}</span></div>
+                <div className="stat"><span>Cash</span><span>{formatCurrency(portfolio?.cash ?? 0)}</span></div>
                 <div className="stat"><span>Equity</span><span>{formatCurrency(totalEquity())}</span></div>
                 <div className="stat"><span>Realized P&L</span><span className={realizedPnl() >= 0 ? 'positive' : 'negative'}>{formatCurrency(realizedPnl())}</span></div>
               </div>
               <div className="positions-list">
                 <h3>Positions</h3>
-                {Object.keys(terminalState.positions).length === 0 ? (
+                {!positions?.length ? (
                   <p className="muted">No positions</p>
                 ) : (
-                  Object.entries(terminalState.positions).map(([sym, p]) => {
+                  positions.map((p) => {
                     if (!p?.qty) return null
-                    const mkt = (suggestions?.symbol === sym ? suggestions?.current_price : terminalState.lastPrice) || p.cost / p.qty
-                    const unrealized = (mkt - p.cost / p.qty) * p.qty
+                    const sym = p.symbol
+                    const mkt = sym === symbol.toUpperCase().replace('/', '') ? currentPrice : p.avg_cost
+                    const unrealized = (mkt - p.avg_cost) * p.qty
                     return (
                       <div key={sym} className="position-row">
-                        <span>{sym}</span>
-                        <span>{p.qty} @ {formatCurrency(p.cost / p.qty)}</span>
-                        <span className={unrealized >= 0 ? 'positive' : 'negative'}>{formatCurrency(unrealized)}</span>
+                        <div className="position-info">
+                          <span>{sym}</span>
+                          <span>{(typeof p.qty === 'number' && p.qty < 1 ? p.qty.toFixed(8).replace(/\.?0+$/, '') : p.qty)} @ {formatCurrency(p.avg_cost)}</span>
+                          <span className={unrealized >= 0 ? 'positive' : 'negative'}>{formatCurrency(unrealized)}</span>
+                        </div>
+                        <button type="button" className="btn-sell-small" onClick={() => sellPosition(p)} disabled={terminalLoading}>Sell</button>
                       </div>
                     )
                   })
@@ -301,9 +342,21 @@ function App() {
               </div>
             </div>
             <div className="terminal-main">
+              <div className="chart-area">
+                <div className="chart-header">
+                  <select value={chartTimeframe} onChange={(e) => setChartTimeframe(e.target.value)} className="chart-timeframe-select">
+                    <option value="1m">1m</option>
+                    <option value="5m">5m</option>
+                    <option value="15m">15m</option>
+                    <option value="1h">1h</option>
+                    <option value="1d">1D</option>
+                  </select>
+                </div>
+                <CandlestickChart ohlcv={ohlcv} symbol={symbol} height={360} livePrice={assetClass === 'crypto' ? wsPrice ?? currentPrice : currentPrice} liveKline={assetClass === 'crypto' ? wsKline : null} />
+              </div>
               <div className="market-card">
                 <h2>{symbol}</h2>
-                <div className="price">{formatCurrency(suggestions?.current_price ?? terminalState.lastPrice)}</div>
+                <div className="price">{formatCurrency(currentPrice)}{assetClass === 'crypto' && wsConnected ? <span className="price-live"> ● Live</span> : priceLoading ? <span className="price-loading"> (updating…)</span> : null}</div>
                 <div className="signal-row">
                   <span className={`badge signal-${(suggestions?.signal || 'HOLD').toLowerCase()}`}>
                     {suggestions?.signal || 'HOLD'}
@@ -315,19 +368,44 @@ function App() {
                 {suggestions?.recommendation && (
                   <p className="recommendation">{suggestions.recommendation}</p>
                 )}
+                <div className="order-amount-section">
+                  <label>Order amount ($)</label>
+                  <div className="order-amount-buttons">
+                    {[100, 500, 1000].map((amt) => (
+                      <button key={amt} type="button" className={`order-amt-btn ${orderAmount === amt ? 'active' : ''}`} onClick={() => setOrderAmount(amt)}>
+                        ${amt}
+                      </button>
+                    ))}
+                    <button type="button" className={`order-amt-btn ${orderAmount === Math.floor((portfolio?.cash ?? 0) * 0.1) ? 'active' : ''}`} onClick={() => setOrderAmount(Math.floor((portfolio?.cash ?? 0) * 0.1))}>
+                      10%
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    className="order-amount-input"
+                    value={orderAmount}
+                    onChange={(e) => setOrderAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                    min="1"
+                    step="1"
+                    placeholder="Custom amount"
+                  />
+                </div>
                 <div className="action-buttons">
-                  <button type="button" className="btn-buy" onClick={() => executeAction('BUY')} disabled={!suggestions?.current_price || suggestLoading}>
-                    BUY
+                  <button type="button" className="btn-buy" onClick={() => executeAction('BUY')} disabled={!currentPrice || suggestLoading || terminalLoading || orderAmount <= 0 || orderAmount > (portfolio?.cash ?? 0)}>
+                    BUY ${orderAmount}
                   </button>
-                  <button type="button" className="btn-sell" onClick={() => executeAction('SELL')} disabled={!terminalState.positions[symbol]?.qty || suggestLoading}>
+                  <button type="button" className="btn-sell" onClick={() => executeAction('SELL')} disabled={!positions?.find((p) => p.symbol === symbol.toUpperCase().replace('/', ''))?.qty || suggestLoading || terminalLoading}>
                     SELL
                   </button>
                   <button type="button" className="btn-hold" disabled>HOLD</button>
                 </div>
               </div>
               <div className="trades-history">
-                <h3>Recent Trades</h3>
-                {terminalState.trades.length === 0 ? (
+                <div className="trades-history-header">
+                  <h3>Recent Trades</h3>
+                  <a href="/api/terminal/all-trades" target="_blank" rel="noopener noreferrer" className="export-trades-link">Export all</a>
+                </div>
+                {!trades?.length ? (
                   <p className="muted">No trades yet</p>
                 ) : (
                   <table>
@@ -342,12 +420,12 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {terminalState.trades.slice(-20).reverse().map((t, i) => (
-                        <tr key={i}>
-                          <td>{new Date(t.time).toLocaleTimeString()}</td>
+                      {trades.slice(0, 20).map((t, i) => (
+                        <tr key={t.id ?? i}>
+                          <td>{new Date(t.timestamp).toLocaleTimeString()}</td>
                           <td>{t.symbol}</td>
                           <td className={t.side.toLowerCase()}>{t.side}</td>
-                          <td>{t.qty}</td>
+                          <td>{typeof t.qty === 'number' && t.qty < 1 ? t.qty.toFixed(8).replace(/\.?0+$/, '') : t.qty}</td>
                           <td>{formatCurrency(t.price)}</td>
                           <td className={t.pnl != null ? (t.pnl >= 0 ? 'positive' : 'negative') : ''}>{t.pnl != null ? formatCurrency(t.pnl) : '—'}</td>
                         </tr>

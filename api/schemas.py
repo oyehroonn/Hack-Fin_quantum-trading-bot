@@ -151,6 +151,17 @@ class PaperTradeResponse(BaseModel):
     message: str = ""
 
 
+# ── Terminal Schemas ──
+
+class TerminalTradeRequest(BaseModel):
+    session_id: str = Field(..., description="Trading session ID")
+    symbol: str = Field(..., description="Symbol to trade")
+    side: str = Field(..., description="BUY or SELL")
+    qty: float = Field(..., gt=0, description="Quantity")
+    price: float = Field(..., gt=0, description="Price per unit")
+    asset_class: str = "equities"
+
+
 # ── Suggest Schemas ──
 
 class SuggestRequest(BaseModel):

@@ -42,6 +42,17 @@ app.add_middleware(
 
 # ── Mount v0.2 routers ──
 try:
+    from api.routers.terminal import router as terminal_router
+    from api.routers.market import router as market_router
+    from api.routers.binance_ws import router as binance_ws_router
+    app.include_router(terminal_router)
+    app.include_router(market_router)
+    app.include_router(binance_ws_router)
+    logger.info("Terminal + Market + Binance WS routers mounted: /api/terminal, /api/market, /ws/crypto")
+except ImportError as e:
+    logger.warning(f"Could not mount terminal/market/ws routers: {e}")
+
+try:
     from api.routers.models import router as models_router
     from api.routers.research import router as research_router
     app.include_router(models_router)
