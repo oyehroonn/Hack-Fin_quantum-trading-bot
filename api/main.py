@@ -45,12 +45,16 @@ try:
     from api.routers.terminal import router as terminal_router
     from api.routers.market import router as market_router
     from api.routers.binance_ws import router as binance_ws_router
+    from api.routers.bot_api import router as bot_router
+    from api.routers.futures_api import router as futures_router
     app.include_router(terminal_router)
     app.include_router(market_router)
     app.include_router(binance_ws_router)
-    logger.info("Terminal + Market + Binance WS routers mounted: /api/terminal, /api/market, /ws/crypto")
+    app.include_router(bot_router)
+    app.include_router(futures_router)
+    logger.info("Terminal + Market + WS + Bot + Futures routers mounted")
 except ImportError as e:
-    logger.warning(f"Could not mount terminal/market/ws routers: {e}")
+    logger.warning(f"Could not mount routers: {e}")
 
 try:
     from api.routers.models import router as models_router

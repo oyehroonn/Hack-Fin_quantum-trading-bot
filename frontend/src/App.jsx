@@ -5,6 +5,8 @@ import CandlestickChart from './components/CandlestickChart'
 import { useLivePrice } from './hooks/useLivePrice'
 import { useBinanceWebSocket } from './hooks/useBinanceWebSocket'
 import { useTerminalSession } from './hooks/useTerminalSession'
+import BotDashboard from './components/BotDashboard'
+import FuturesDashboard from './components/FuturesDashboard'
 import './App.css'
 
 function formatCurrency(value) {
@@ -224,6 +226,12 @@ function App() {
           <button className={view === 'terminal' ? 'active' : ''} onClick={() => setView('terminal')}>
             Trading Terminal
           </button>
+          <button className={view === 'bot' ? 'active' : ''} onClick={() => setView('bot')}>
+            Spot Bot
+          </button>
+          <button className={view === 'futures' ? 'active' : ''} onClick={() => setView('futures')}>
+            Futures Bot
+          </button>
           <button className={view === 'backtest' ? 'active' : ''} onClick={() => setView('backtest')}>
             Backtest
           </button>
@@ -437,6 +445,10 @@ function App() {
             </div>
           </div>
         )}
+
+        {view === 'bot' && <BotDashboard />}
+
+        {view === 'futures' && <FuturesDashboard />}
 
         {view === 'backtest' && (
           <>
